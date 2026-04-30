@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Tracker Soste</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tracker Soste">
+<link rel="apple-touch-icon" href="icon-192.png">
+<!-- MAP -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -727,6 +735,94 @@ function exportXLSX() {
   showToast(`✅ ${filename} scaricato`);
   setTimeout(() => { tab.textContent = '⬇ XLS'; tab.disabled = false; }, 1500);
 }
+
+// ─── PWA: SERVICE WORKER ────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ─── PWA: INSTALL BANNER ─────────────────────────────────────────────────────
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  showInstallBanner();
+});
+
+function showInstallBanner() {
+  if (document.getElementById('installBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'installBanner';
+  banner.style.cssText = `
+    position:fixed;bottom:0;left:0;right:0;
+    background:#161b22;border-top:1px solid #30363d;
+    padding:14px 16px;display:flex;align-items:center;gap:12px;
+    z-index:9999;font-family:'Sora',sans-serif;
+  `;
+  banner.innerHTML = `
+    <span style="font-size:24px">📍</span>
+    <div style="flex:1">
+      <div style="font-size:13px;font-weight:600;color:#e6edf3">Installa Tracker Soste</div>
+      <div style="font-size:11px;color:#8b949e">Aggiungila alla schermata Home</div>
+    </div>
+    <button onclick="installPWA()" style="background:#4ade80;color:#0d1117;border:none;border-radius:8px;padding:8px 16px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;">INSTALLA</button>
+    <button onclick="document.getElementById('installBanner').remove()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:4px;">✕</button>
+  `;
+  document.body.appendChild(banner);
+}
+
+async function installPWA() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  const b = document.getElementById('installBanner');
+  if (b) b.remove();
+}
+
+// ─── NOTIFICHE MATTUTINE ─────────────────────────────────────────────────────
+async function setupNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+  }
+  if (Notification.permission !== 'granted') return;
+  scheduleNextNotification();
+}
+
+function scheduleNextNotification() {
+  const now = new Date();
+  const target = getNextWeekdayAt(7, 25); // 07:25 nei giorni feriali
+  const delay = target - now;
+  if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
+    setTimeout(() => {
+      new Notification('📍 Tracker Soste', {
+        body: 'Buongiorno! La registrazione delle soste inizia tra 5 minuti.',
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
+        tag: 'morning-reminder',
+        renotify: true
+      });
+      // Riprogramma per il giorno dopo
+      setTimeout(scheduleNextNotification, 60 * 1000);
+    }, delay);
+  }
+}
+
+function getNextWeekdayAt(hour, minute) {
+  const now = new Date();
+  const d = new Date(now);
+  d.setHours(hour, minute, 0, 0);
+  // Se l'orario di oggi è già passato, vai al prossimo giorno
+  if (d <= now) d.setDate(d.getDate() + 1);
+  // Salta sabato (6) e domenica (0)
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+// Avvia setup notifiche dopo 2s (per non bloccare il GPS)
+setTimeout(setupNotifications, 2000);
 
 </script>
 </body>
