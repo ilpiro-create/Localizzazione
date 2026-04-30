@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tracker Soste</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;
+  --border:#30363d;--accent:#4ade80;--accent2:#fb923c;
+  --blue:#60a5fa;--muted:#8b949e;--text:#e6edf3;
+  --mono:'Space Mono',monospace;--sans:'Sora',sans-serif;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);}
+
+/* LAYOUT */
+.app{display:flex;flex-direction:column;height:100vh;}
+
+/* HEADER */
+.header{
+  padding:12px 16px 10px;
+  background:var(--bg);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  z-index:1000;flex-shrink:0;
+}
+.header-left{display:flex;flex-direction:column;gap:2px;}
+.app-name{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.date-str{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text);}
+.header-right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+.clock{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent);letter-spacing:-.02em;line-height:1;}
+.range-lbl{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.05em;}
+
+/* STATUS PILL */
+.status-pill{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 14px;background:var(--surface);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s;}
+.dot.active{background:var(--accent);animation:blink 1.8s infinite;}
+.dot.warn{background:var(--accent2);}
+.dot.off{background:#ef4444;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+.status-txt{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.06em;flex:1;}
+.perm-btn{
+  font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+  padding:5px 10px;border-radius:6px;border:1px solid var(--accent);
+  background:transparent;color:var(--accent);cursor:pointer;
+}
+
+/* MAP */
+#map{flex:1;z-index:1;min-height:0;}
+.leaflet-container{background:#1a2030 !important;}
+
+/* BOTTOM PANEL */
+.panel{
+  background:var(--bg);border-top:1px solid var(--border);
+  flex-shrink:0;max-height:42vh;display:flex;flex-direction:column;
+}
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);}
+.tab{
+  flex:1;padding:10px;font-family:var(--mono);font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;
+  transition:all .15s;
+}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+.panel-body{overflow-y:auto;flex:1;}
+
+/* STOPS LIST */
+.stops-list{padding:8px 12px 12px;display:flex;flex-direction:column;gap:6px;}
+.stop-row{
+  display:flex;align-items:flex-start;gap:10px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:10px 12px;
+  animation:fadeIn .3s ease;cursor:pointer;transition:border-color .15s;
+}
+.stop-row:hover{border-color:var(--accent);}
+.stop-row.active-stop{border-color:var(--accent2);background:rgba(251,146,60,.05);}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+.stop-num{
+  width:24px;height:24px;border-radius:50%;background:var(--accent);
+  color:#0d1117;font-family:var(--mono);font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.stop-num.current{background:var(--accent2);}
+.stop-body{flex:1;min-width:0;}
+.stop-place{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stop-place.loading{color:var(--muted);font-style:italic;}
+.stop-times{display:flex;gap:10px;margin-top:3px;align-items:center;}
+.stop-time-lbl{font-family:var(--mono);font-size:10px;color:var(--muted);}
+.stop-dur{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);}
+.stop-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px;transition:color .15s;flex-shrink:0;}
+.stop-del:hover{color:#ef4444;}
+
+.empty-msg{padding:28px;text-align:center;}
+.empty-ico{font-size:28px;opacity:.3;margin-bottom:8px;}
+.empty-txt{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;line-height:1.6;}
+
+/* SUMMARY TAB */
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px;}
+.sum-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 12px;}
+.sum-val{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent);line-height:1;margin-bottom:4px;}
+.sum-lbl{font-size:11px;color:var(--muted);}
+
+/* TIMELINE */
+.timeline-wrap{padding:0 12px 12px;}
+.tl-bar{height:24px;background:var(--surface);border:1px solid var(--border);border-radius:6px;position:relative;overflow:hidden;margin-bottom:6px;}
+.tl-seg{position:absolute;top:0;height:100%;background:rgba(74,222,128,.2);border-right:1px solid rgba(74,222,128,.4);}
+.tl-seg.cur{background:rgba(251,146,60,.25);border-color:rgba(251,146,60,.5);}
+.tl-now{position:absolute;top:0;width:2px;height:100%;background:var(--accent);}
+.tl-labels{display:flex;justify-content:space-between;}
+.tl-lbl{font-family:var(--mono);font-size:9px;color:var(--muted);}
+
+/* CUSTOM MARKERS */
+.map-marker{
+  width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+  display:flex;align-items:center;justify-content:center;
+  border:2px solid #0d1117;box-shadow:0 2px 8px rgba(0,0,0,.5);
+}
+.map-marker-inner{transform:rotate(45deg);font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:#0d1117;}
+.map-marker.green{background:var(--accent);}
+.map-marker.orange{background:var(--accent2);}
+.map-marker.blue{background:var(--blue);}
+
+/* ACCURACY RING */
+.leaflet-accuracy-circle{stroke:rgba(74,222,128,.4);fill:rgba(74,222,128,.08);}
+
+/* EXPORT TAB */
+.tab-export{
+  background:rgba(74,222,128,.08) !important;
+  color:var(--accent) !important;
+  border-bottom-color:transparent !important;
+  letter-spacing:.06em;
+}
+.tab-export:hover{background:rgba(74,222,128,.15) !important;}
+
+/* SCROLLBAR */
+.panel-body::-webkit-scrollbar{width:4px;}
+.panel-body::-webkit-scrollbar-track{background:transparent;}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+
+/* EXPORT BUTTON */
+.export-btn{
+  display:flex;align-items:center;gap:7px;
+  margin:10px 12px 4px;
+  padding:11px 16px;
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:var(--text);
+  font-family:var(--mono);font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;
+  cursor:pointer;transition:all .15s;width:calc(100% - 24px);
+  justify-content:center;
+}
+.export-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(74,222,128,.06);}
+.export-btn:active{transform:scale(.97);}
+.export-btn:disabled{opacity:.4;cursor:not-allowed;}
+.export-icon{font-size:14px;}
+
+/* TOAST */
+.toast{
+  position:fixed;top:80px;left:50%;transform:translateX(-50%);
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  padding:10px 18px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  color:var(--text);z-index:9999;white-space:nowrap;
+  animation:toastIn .25s ease;
+  pointer-events:none;
+}
+@keyframes toastIn{from{opacity:0;top:70px;}to{opacity:1;top:80px;}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="app-name">📍 Tracker Soste</div>
+      <div class="date-str" id="dateStr">—</div>
+    </div>
+    <div class="header-right">
+      <div class="clock" id="clockDisp">--:--</div>
+      <div class="range-lbl">07:30 – 20:00</div>
+    </div>
+  </div>
+
+  <!-- STATUS -->
+  <div class="status-pill">
+    <div class="dot" id="statusDot"></div>
+    <span class="status-txt" id="statusTxt">Inizializzazione GPS...</span>
+    <button class="perm-btn" id="permBtn" style="display:none" onclick="requestGPS()">Attiva GPS</button>
+  </div>
+
+  <!-- MAP -->
+  <div id="map"></div>
+
+  <!-- BOTTOM PANEL -->
+  <div class="panel">
+    <div class="panel-tabs">
+      <button class="tab active" id="tab-stops" onclick="switchTab('stops')">Soste (<span id="stopCount">0</span>)</button>
+      <button class="tab" id="tab-summary" onclick="switchTab('summary')">Riepilogo</button>
+      <button class="tab tab-export" id="tab-export" onclick="exportXLSX()" title="Scarica Excel">⬇ XLS</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <div class="empty-msg">
+        <div class="empty-ico">🛰️</div>
+        <div class="empty-txt">In ascolto GPS<br>soste &gt; 15 min appaiono qui</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const DAY_START = { h:7, m:30 };
+const DAY_END   = { h:20, m:0 };
+const MIN_STOP_SECS  = 15 * 60;   // 15 minuti
+const SAMPLE_INTERVAL = 30 * 1000; // campionamento ogni 30s
+const CLUSTER_RADIUS_M = 80;       // raggio entro cui si considera "stesso posto"
+const STORAGE_KEY = 'geotracker_v2';
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let map, posMarker, accuracyCircle;
+let watchId = null;
+let currentTab = 'stops';
+let lastPos = null;
+let currentStopStart = null;
+let currentStopCoord = null;
+let currentStopAccumSecs = 0;
+let sampleTimer = null;
+let geocodeQueue = [];
+let geocodeBusy = false;
+
+let stops = loadStops();
+let markers = {}; // stopId -> leaflet marker
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  initClock();
+  renderAll();
+  requestGPS();
+  setInterval(onSampleTick, SAMPLE_INTERVAL);
+  onSampleTick();
+});
+
+function initMap() {
+  map = L.map('map', { zoomControl: true, attributionControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  }).addTo(map);
+  map.setView([45.4642, 9.1900], 13);
+
+  // Ridisegna i marker esistenti
+  stops.forEach(s => addMarkerToMap(s));
+}
+
+function initClock() {
+  function tick() {
+    const now = new Date();
+    document.getElementById('clockDisp').textContent =
+      now.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    document.getElementById('dateStr').textContent =
+      now.toLocaleDateString('it-IT', {weekday:'long', day:'numeric', month:'long'});
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+// ─── GPS ──────────────────────────────────────────────────────────────────────
+function requestGPS() {
+  document.getElementById('permBtn').style.display = 'none';
+  setStatus('Richiesta permesso GPS...', '');
+
+  if (!navigator.geolocation) {
+    setStatus('GPS non supportato', 'off');
+    return;
+  }
+
+  watchId = navigator.geolocation.watchPosition(
+    onPosition,
+    onGPSError,
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 10000 }
+  );
+}
+
+function onPosition(pos) {
+  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+  lastPos = { lat, lng, accuracy, time: new Date() };
+
+  // Aggiorna marker posizione corrente
+  if (!posMarker) {
+    const icon = L.divIcon({
+      html:`<div style="width:14px;height:14px;border-radius:50%;background:#60a5fa;border:3px solid #0d1117;box-shadow:0 0 0 3px rgba(96,165,250,.3)"></div>`,
+      className:'', iconSize:[14,14], iconAnchor:[7,7]
+    });
+    posMarker = L.marker([lat, lng], {icon, zIndexOffset:1000}).addTo(map);
+    map.setView([lat, lng], 16);
+  } else {
+    posMarker.setLatLng([lat, lng]);
+  }
+
+  if (accuracyCircle) {
+    accuracyCircle.setLatLng([lat, lng]).setRadius(accuracy);
+  } else {
+    accuracyCircle = L.circle([lat, lng], {
+      radius: accuracy, className:'leaflet-accuracy-circle', weight:1
+    }).addTo(map);
+  }
+
+  const accStr = accuracy < 20 ? `GPS ±${Math.round(accuracy)}m` :
+                 accuracy < 50 ? `GPS ±${Math.round(accuracy)}m` : `GPS ±${Math.round(accuracy)}m (scarso)`;
+  setStatus(`${accStr} · in ascolto`, 'active');
+}
+
+function onGPSError(err) {
+  const msgs = {1:'Permesso GPS negato', 2:'Posizione non disponibile', 3:'Timeout GPS'};
+  setStatus(msgs[err.code] || 'Errore GPS', 'off');
+  if (err.code === 1) document.getElementById('permBtn').style.display = 'block';
+}
+
+// ─── SAMPLE TICK ──────────────────────────────────────────────────────────────
+function onSampleTick() {
+  if (!lastPos) return;
+  const now = new Date();
+  if (!isInRange(now)) {
+    if (currentStopStart) finalizeCurrentStop();
+    return;
+  }
+
+  const { lat, lng } = lastPos;
+
+  if (!currentStopCoord) {
+    // Prima rilevazione del giorno
+    startStop(lat, lng, now);
+    return;
+  }
+
+  const dist = haversine(currentStopCoord.lat, currentStopCoord.lng, lat, lng);
+
+  if (dist <= CLUSTER_RADIUS_M) {
+    // Stesso posto: accumula tempo
+    currentStopAccumSecs += SAMPLE_INTERVAL / 1000;
+    updateLiveMarker();
+  } else {
+    // Ci siamo mossi
+    finalizeCurrentStop();
+    startStop(lat, lng, now);
+  }
+}
+
+function startStop(lat, lng, time) {
+  currentStopCoord = { lat, lng };
+  currentStopStart = time;
+  currentStopAccumSecs = 0;
+  updateLiveMarker();
+}
+
+function finalizeCurrentStop() {
+  if (!currentStopStart || currentStopAccumSecs < MIN_STOP_SECS) {
+    currentStopStart = null;
+    currentStopCoord = null;
+    currentStopAccumSecs = 0;
+    return;
+  }
+
+  const stop = {
+    id: Date.now(),
+    num: stops.length + 1,
+    lat: currentStopCoord.lat,
+    lng: currentStopCoord.lng,
+    start: currentStopStart.toISOString(),
+    end: new Date().toISOString(),
+    duration: currentStopAccumSecs,
+    place: null
+  };
+
+  stops.push(stop);
+  saveStops();
+  addMarkerToMap(stop);
+  enqueueGeocode(stop);
+  showToast(`📍 Sosta #${stop.num} registrata (${fmtDur(stop.duration)})`);
+  renderAll();
+
+  currentStopStart = null;
+  currentStopCoord = null;
+  currentStopAccumSecs = 0;
+  removeLiveMarker();
+}
+
+// ─── LIVE MARKER (sosta in corso, non ancora qualificata) ─────────────────────
+let liveMarker = null;
+function updateLiveMarker() {
+  if (!currentStopCoord) return;
+  const qualified = currentStopAccumSecs >= MIN_STOP_SECS;
+  const color = qualified ? 'rgba(251,146,60,0.9)' : 'rgba(251,146,60,0.45)';
+  const html = `<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #0d1117;display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-family:Space Mono,monospace;font-size:9px;font-weight:700;color:#0d1117;">●</span></div>`;
+  const icon = L.divIcon({ html, className:'', iconSize:[22,22], iconAnchor:[11,22] });
+
+  if (!liveMarker) {
+    liveMarker = L.marker([currentStopCoord.lat, currentStopCoord.lng], {icon}).addTo(map);
+  } else {
+    liveMarker.setLatLng([currentStopCoord.lat, currentStopCoord.lng]);
+    liveMarker.setIcon(icon);
+  }
+
+  // Aggiorna status
+  const elapsed = fmtDur(currentStopAccumSecs);
+  const pct = Math.min(100, Math.round(currentStopAccumSecs / MIN_STOP_SECS * 100));
+  setStatus(`Fermo da ${elapsed} · ${pct}% soglia sosta${qualified ? ' ✓' : ''}`,
+            qualified ? 'warn' : 'active');
+}
+
+function removeLiveMarker() {
+  if (liveMarker) { map.removeLayer(liveMarker); liveMarker = null; }
+}
+
+// ─── MAP MARKERS ─────────────────────────────────────────────────────────────
+function addMarkerToMap(stop) {
+  const html = `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#4ade80;border:2px solid #0d1117;box-shadow:0 2px 8px rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-family:Space Mono,monospace;font-size:11px;font-weight:700;color:#0d1117;">${stop.num}</span></div>`;
+  const icon = L.divIcon({ html, className:'', iconSize:[28,28], iconAnchor:[14,28] });
+  const marker = L.marker([stop.lat, stop.lng], {icon}).addTo(map);
+  marker.bindPopup(buildPopup(stop));
+  markers[stop.id] = marker;
+}
+
+function buildPopup(stop) {
+  return `<div style="font-family:'Space Mono',monospace;font-size:11px;color:#e6edf3;min-width:160px;">
+    <div style="font-size:13px;font-weight:700;margin-bottom:6px;color:#4ade80;">#${stop.num} ${stop.place || '...'}</div>
+    <div style="color:#8b949e;">${fmtTime(stop.start)} → ${fmtTime(stop.end)}</div>
+    <div style="color:#4ade80;margin-top:3px;">${fmtDur(stop.duration)}</div>
+  </div>`;
+}
+
+// ─── REVERSE GEOCODING ────────────────────────────────────────────────────────
+function enqueueGeocode(stop) {
+  geocodeQueue.push(stop);
+  processGeocodeQueue();
+}
+
+async function processGeocodeQueue() {
+  if (geocodeBusy || geocodeQueue.length === 0) return;
+  geocodeBusy = true;
+  const stop = geocodeQueue.shift();
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${stop.lat}&lon=${stop.lng}&format=json&accept-language=it`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'GeoTracker/1.0' } });
+    const data = await res.json();
+    const a = data.address || {};
+    stop.place = a.road
+      ? `${a.road}${a.house_number ? ' ' + a.house_number : ''}${a.suburb ? ', ' + a.suburb : ''}`
+      : a.suburb || a.neighbourhood || a.city || a.town || a.village || 'Posizione sconosciuta';
+    // Aggiorna popup
+    if (markers[stop.id]) markers[stop.id].setPopupContent(buildPopup(stop));
+    saveStops();
+    renderAll();
+  } catch(e) {
+    stop.place = `(${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)})`;
+  }
+  geocodeBusy = false;
+  setTimeout(processGeocodeQueue, 1200); // rate limit Nominatim: max 1 req/s
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function renderAll() {
+  document.getElementById('stopCount').textContent = stops.length;
+  if (currentTab === 'stops') renderStops();
+  else renderSummary();
+}
+
+function renderStops() {
+  const body = document.getElementById('panelBody');
+  if (stops.length === 0) {
+    body.innerHTML = `<div class="empty-msg"><div class="empty-ico">🛰️</div><div class="empty-txt">In ascolto GPS<br>soste &gt; 15 min appaiono qui</div></div>`;
+    return;
+  }
+
+  const isCurStop = currentStopAccumSecs >= MIN_STOP_SECS;
+  let html = '<div class="stops-list">';
+  [...stops].reverse().forEach(s => {
+    const isLast = s.id === stops[stops.length-1]?.id;
+    html += `<div class="stop-row${isLast && isCurStop ? ' active-stop' : ''}" onclick="flyTo(${s.id})">
+      <div class="stop-num">${s.num}</div>
+      <div class="stop-body">
+        <div class="stop-place${s.place ? '' : ' loading'}">${s.place || 'Ricerca indirizzo...'}</div>
+        <div class="stop-times">
+          <span class="stop-time-lbl">${fmtTime(s.start)} → ${fmtTime(s.end)}</span>
+          <span class="stop-dur">${fmtDur(s.duration)}</span>
+        </div>
+      </div>
+      <button class="stop-del" onclick="deleteStop(event,${s.id})">✕</button>
+    </div>`;
+  });
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function renderSummary() {
+  const body = document.getElementById('panelBody');
+  const total = stops.reduce((a, s) => a + s.duration, 0);
+  const avg = stops.length ? Math.round(total / stops.length) : 0;
+  const longest = stops.length ? Math.max(...stops.map(s => s.duration)) : 0;
+
+  const now = new Date();
+  const nowF = tFrac(now);
+
+  let tlSegs = stops.map(s => {
+    const lf = tFrac(new Date(s.start));
+    const rf = tFrac(new Date(s.end));
+    return `<div class="tl-seg" style="left:${lf*100}%;width:${(rf-lf)*100}%"></div>`;
+  }).join('');
+
+  if (currentStopAccumSecs >= MIN_STOP_SECS && currentStopStart) {
+    const lf = tFrac(currentStopStart);
+    tlSegs += `<div class="tl-seg cur" style="left:${lf*100}%;width:${(nowF-lf)*100}%"></div>`;
+  }
+
+  body.innerHTML = `
+    <div class="summary-grid">
+      <div class="sum-card"><div class="sum-val">${stops.length}</div><div class="sum-lbl">Soste totali</div></div>
+      <div class="sum-card"><div class="sum-val">${stops.length ? fmtDur(total) : '—'}</div><div class="sum-lbl">Tempo fermo</div></div>
+      <div class="sum-card"><div class="sum-val">${stops.length ? fmtDur(avg) : '—'}</div><div class="sum-lbl">Durata media</div></div>
+      <div class="sum-card"><div class="sum-val">${stops.length ? fmtDur(longest) : '—'}</div><div class="sum-lbl">Sosta più lunga</div></div>
+    </div>
+    <div class="timeline-wrap">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Timeline giornata</div>
+      <div class="tl-bar">${tlSegs}<div class="tl-now" style="left:${nowF*100}%"></div></div>
+      <div class="tl-labels">
+        <span class="tl-lbl">07:30</span><span class="tl-lbl">11</span>
+        <span class="tl-lbl">14</span><span class="tl-lbl">17</span><span class="tl-lbl">20:00</span>
+      </div>
+    </div>`;
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  renderAll();
+}
+
+function flyTo(id) {
+  const stop = stops.find(s => s.id === id);
+  if (stop) {
+    map.flyTo([stop.lat, stop.lng], 17, {animate:true, duration:0.8});
+    if (markers[id]) setTimeout(() => markers[id].openPopup(), 900);
+  }
+}
+
+function deleteStop(e, id) {
+  e.stopPropagation();
+  if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+  stops = stops.filter(s => s.id !== id);
+  stops.forEach((s, i) => s.num = i + 1); // rinumera
+  saveStops();
+  // Aggiorna testo marker
+  stops.forEach(s => {
+    if (markers[s.id]) {
+      const html = `<div style="width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#4ade80;border:2px solid #0d1117;box-shadow:0 2px 8px rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;"><span style="transform:rotate(45deg);font-family:Space Mono,monospace;font-size:11px;font-weight:700;color:#0d1117;">${s.num}</span></div>`;
+      markers[s.id].setIcon(L.divIcon({ html, className:'', iconSize:[28,28], iconAnchor:[14,28] }));
+    }
+  });
+  renderAll();
+}
+
+// ─── UTILITIES ────────────────────────────────────────────────────────────────
+function isInRange(date) {
+  const m = date.getHours() * 60 + date.getMinutes();
+  return m >= DAY_START.h * 60 + DAY_START.m && m <= DAY_END.h * 60 + DAY_END.m;
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, rad = Math.PI/180;
+  const dLat = (lat2-lat1)*rad, dLon = (lon2-lon1)*rad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function fmtDur(secs) {
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`;
+  return `${s}s`;
+}
+
+function fmtTime(iso) {
+  if (!iso) return '--:--';
+  return new Date(iso).toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+}
+
+function tFrac(date) {
+  const start = DAY_START.h*60+DAY_START.m, end = DAY_END.h*60+DAY_END.m;
+  const m = date.getHours()*60+date.getMinutes();
+  return Math.max(0, Math.min(1, (m-start)/(end-start)));
+}
+
+function setStatus(txt, dotClass) {
+  document.getElementById('statusTxt').textContent = txt;
+  const d = document.getElementById('statusDot');
+  d.className = 'dot' + (dotClass ? ' ' + dotClass : '');
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function loadStops() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+
+function saveStops() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(stops)); } catch {}
+}
+
+// ─── EXPORT XLSX ─────────────────────────────────────────────────────────────
+function exportXLSX() {
+  if (stops.length === 0) { showToast('⚠️ Nessuna sosta da esportare'); return; }
+
+  const tab = document.getElementById('tab-export');
+  tab.textContent = '⏳ ...';
+  tab.disabled = true;
+
+  const date = new Date().toLocaleDateString('it-IT');
+
+  // ── Foglio 1: Soste ──────────────────────────────────────────────────────
+  const rows = stops.map((s, i) => ({
+    'N°':            s.num,
+    'Indirizzo':     s.place || `(${s.lat.toFixed(5)}, ${s.lng.toFixed(5)})`,
+    'Data':          date,
+    'Ora inizio':    fmtTime(s.start),
+    'Ora fine':      fmtTime(s.end),
+    'Durata':        fmtDur(s.duration),
+    'Durata (min)':  Math.round(s.duration / 60),
+    'Latitudine':    parseFloat(s.lat.toFixed(6)),
+    'Longitudine':   parseFloat(s.lng.toFixed(6)),
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+
+  // Larghezze colonne
+  ws['!cols'] = [
+    {wch:5},{wch:40},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:13},{wch:13}
+  ];
+
+  // Stile header (celle A1:I1) — colore di sfondo scuro con testo bianco
+  const headerRange = XLSX.utils.decode_range(ws['!ref']);
+  const headerStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' }, name: 'Arial', sz: 10 },
+    fill: { fgColor: { rgb: '1A3A2A' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border: {
+      bottom: { style: 'thin', color: { rgb: '4ADE80' } }
+    }
+  };
+  const dataStyle = {
+    font: { name: 'Arial', sz: 10 },
+    alignment: { vertical: 'center' }
+  };
+  const numStyle = {
+    font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '16A34A' } },
+    alignment: { horizontal: 'center', vertical: 'center' }
+  };
+
+  for (let C = headerRange.s.c; C <= headerRange.e.c; C++) {
+    const cellAddr = XLSX.utils.encode_cell({ r: 0, c: C });
+    if (ws[cellAddr]) ws[cellAddr].s = headerStyle;
+  }
+  for (let R = 1; R <= headerRange.e.r; R++) {
+    for (let C = headerRange.s.c; C <= headerRange.e.c; C++) {
+      const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (ws[cellAddr]) ws[cellAddr].s = C === 0 ? numStyle : dataStyle;
+    }
+  }
+
+  // ── Foglio 2: Riepilogo ──────────────────────────────────────────────────
+  const total = stops.reduce((a, s) => a + s.duration, 0);
+  const avg   = stops.length ? Math.round(total / stops.length) : 0;
+  const max   = stops.length ? Math.max(...stops.map(s => s.duration)) : 0;
+  const maxStop = stops.find(s => s.duration === max);
+
+  const summaryData = [
+    ['Riepilogo giornata', ''],
+    ['Data', date],
+    ['Fascia oraria', '07:30 – 20:00'],
+    ['', ''],
+    ['Numero soste', stops.length],
+    ['Tempo totale fermo', fmtDur(total)],
+    ['Durata media sosta', fmtDur(avg)],
+    ['Sosta più lunga', fmtDur(max)],
+    ['Luogo sosta più lunga', maxStop?.place || '—'],
+    ['', ''],
+    ['Prima sosta', stops.length ? `${fmtTime(stops[0].start)} – ${stops[0].place||'—'}` : '—'],
+    ['Ultima sosta', stops.length ? `${fmtTime(stops[stops.length-1].start)} – ${stops[stops.length-1].place||'—'}` : '—'],
+  ];
+
+  const ws2 = XLSX.utils.aoa_to_sheet(summaryData);
+  ws2['!cols'] = [{wch:28},{wch:45}];
+
+  // Titolo riepilogo
+  if (ws2['A1']) ws2['A1'].s = { font:{bold:true,sz:13,name:'Arial',color:{rgb:'4ADE80'}}, fill:{fgColor:{rgb:'0D1117'}} };
+
+  // ── Workbook ─────────────────────────────────────────────────────────────
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Soste');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Riepilogo');
+
+  const filename = `soste_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+
+  showToast(`✅ ${filename} scaricato`);
+  setTimeout(() => { tab.textContent = '⬇ XLS'; tab.disabled = false; }, 1500);
+}
+
+</script>
+</body>
+</html>
